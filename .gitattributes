@@ -1,0 +1,7 @@
+# Force LF line endings on checkout regardless of platform. Without
+# this, Windows git checkouts (core.autocrlf=true, the default on
+# GitHub-hosted windows-latest runners) convert LF to CRLF, which
+# silently breaks TestFixtureGolden's exact string comparison between
+# the CRLF-converted checked-out expected.json and the LF-only output
+# of Go's encoding/json (which never emits CR).
+* text=auto eol=lf

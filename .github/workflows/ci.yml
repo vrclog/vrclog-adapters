@@ -1,0 +1,48 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Reject go.work
+        shell: bash
+        run: test ! -f go.work
+      - name: Reject replace directives
+        shell: bash
+        run: '! grep -Eq "^[[:space:]]*replace([[:space:]]|\()" go.mod'
+      - name: Check formatting
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: test -z "$(gofmt -l .)"
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -count=1 -timeout=5m ./...
+      - name: Test (race, Ubuntu only)
+        if: matrix.os == 'ubuntu-latest'
+        run: go test -race -count=1 -timeout=5m ./...
+      - name: Coverage (Ubuntu only)
+        if: matrix.os == 'ubuntu-latest'
+        run: go test -coverprofile=coverage.out ./...
+      - name: Verify go.mod tidy
+        shell: bash
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum

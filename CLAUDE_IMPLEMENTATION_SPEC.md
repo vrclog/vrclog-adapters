@@ -3,7 +3,9 @@
 作成日: 2026-08-18  
 対象リポジトリ: `github.com/vrclog/vrclog-adapters`  
 対象実装者: Claude Code  
-仕様状態: **Normative / 新規リポジトリ**
+仕様状態: **Superseded — 初期実装完了後は [`CLAUDE_HARDENING_SPEC.md`](CLAUDE_HARDENING_SPEC.md) が最上位仕様である**
+
+> **注意**: 本文書は初回実装（2026-08-18）時点の仕様であり、root packageの `All()` aggregate API 等、その後 `CLAUDE_HARDENING_SPEC.md` により削除・変更された内容を含む。現行の実装契約は `CLAUDE_HARDENING_SPEC.md` を参照すること。本文書は経緯の記録として保持する。
 
 ---
 

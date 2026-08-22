@@ -6,6 +6,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -29,6 +30,25 @@ func makeRecord(t time.Time, msg string) vrclog.Record {
 
 var fixedTime = time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
 
+// requireEngineObservation decodes record through a fresh Engine wrapping
+// adapter a and asserts it produces exactly one canonical Observation with
+// no validation diagnostics.
+func requireEngineObservation(t *testing.T, a vrclog.Adapter, record vrclog.Record) vrclog.Observation {
+	t.Helper()
+	engine, err := vrclog.NewEngine(a)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+	result := engine.Process(record)
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %+v", result.Diagnostics)
+	}
+	if len(result.Observations) != 1 {
+		t.Fatalf("len(Observations) = %d, want 1", len(result.Observations))
+	}
+	return result.Observations[0]
+}
+
 func TestID(t *testing.T) {
 	a := iwasync3.New()
 	if a.ID() != "community.iwasync3" {
@@ -40,24 +60,19 @@ func TestPlayerError(t *testing.T) {
 	a := iwasync3.New()
 	record := makeRecord(fixedTime, "[iwaSync3] There was a `PlayerError` error in the video.")
 
-	emissions, err := a.Decode(record)
-	if err != nil {
-		t.Fatalf("Decode() error = %v", err)
+	obs := requireEngineObservation(t, a, record)
+	if obs.RuleID != "player_error" {
+		t.Errorf("RuleID = %q, want %q", obs.RuleID, "player_error")
 	}
-	if len(emissions) != 1 {
-		t.Fatalf("len(emissions) = %d, want 1", len(emissions))
-	}
-
-	em := emissions[0]
-	if em.Rule != "player_error" {
-		t.Errorf("Rule = %q, want %q", em.Rule, "player_error")
-	}
-	ev, ok := em.Event.(vrclog.MediaErrorObserved)
+	ev, ok := obs.Event.(vrclog.MediaErrorObserved)
 	if !ok {
-		t.Fatalf("Event type = %T, want MediaErrorObserved", em.Event)
+		t.Fatalf("Event type = %T, want MediaErrorObserved", obs.Event)
 	}
 	if ev.Stage != vrclog.MediaStagePlayback {
 		t.Errorf("Stage = %q, want playback", ev.Stage)
+	}
+	if ev.Code != "" {
+		t.Errorf("Code = %q, want empty (no numeric code in this message)", ev.Code)
 	}
 	wantMessage := "There was a `PlayerError` error in the video."
 	if ev.Message != wantMessage {
@@ -74,6 +89,34 @@ func TestPlayerError(t *testing.T) {
 	}
 	if ev.Target.Backend != vrclog.MediaBackendUnknown {
 		t.Errorf("Target.Backend = %q, want unknown", ev.Target.Backend)
+	}
+}
+
+func TestPlayerErrorURLInMessageIsRedacted(t *testing.T) {
+	a := iwasync3.New()
+	record := makeRecord(fixedTime, "[iwaSync3] There was a `PlayerError` error. url: https://example.com/foo")
+
+	obs := requireEngineObservation(t, a, record)
+	ev := obs.Event.(vrclog.MediaErrorObserved)
+	if ev.Message != "There was a `PlayerError` error. url: <url>" {
+		t.Errorf("Message = %q, want %q", ev.Message, "There was a `PlayerError` error. url: <url>")
+	}
+	for _, forbidden := range []string{"http://", "https://"} {
+		if strings.Contains(ev.Message, forbidden) {
+			t.Errorf("Message %q leaks URL scheme %q", ev.Message, forbidden)
+		}
+	}
+}
+
+func TestPlayerErrorOversizedMessageTruncated(t *testing.T) {
+	a := iwasync3.New()
+	longMessage := "PlayerError: " + strings.Repeat("a", 3000)
+	record := makeRecord(fixedTime, "[iwaSync3] "+longMessage)
+
+	obs := requireEngineObservation(t, a, record)
+	ev := obs.Event.(vrclog.MediaErrorObserved)
+	if len(ev.Message) != 2048 {
+		t.Errorf("len(Message) = %d, want 2048", len(ev.Message))
 	}
 }
 
@@ -103,6 +146,9 @@ func TestNoMatch(t *testing.T) {
 		"no_space_after_prefix":        "[iwaSync3]PlayerError occurred",
 		"empty_message":                "",
 		"embedded_tag_other_component": "[Behaviour] Udon Debug.Log: [iwaSync3] There was a `PlayerError` error in the video.",
+		"not_player_error_substring":   "[iwaSync3] NotPlayerError occurred",
+		"player_error_count_substring": "[iwaSync3] PlayerErrorCount incremented",
+		"embedded_in_longer_word":      "[iwaSync3] handlePlayerErrorCallback started",
 	}
 
 	for name, msg := range cases {
@@ -150,9 +196,32 @@ func TestConcurrentDecode(t *testing.T) {
 	wg.Wait()
 }
 
+// normalizeGoldenObservation zeroes/replaces fields that are inherently
+// machine-dependent so golden fixtures are portable across developer
+// machines and CI runners: Observation.ID, Record.ID, and Record.SourceID
+// are SHA-256 hashes of the fixture file's absolute path, and Time
+// reflects vrclog-go's time.Local-based parsing of a timezone-naive
+// VRChat timestamp (a different absolute instant on every machine). This
+// does not touch vrclog-go's parsing/hashing behavior -- only what this
+// repo's golden comparison treats as significant. Working with the typed
+// Observation/RecordRef struct (rather than rewriting the JSON tree)
+// means a future field that happens to be named "id" elsewhere in an
+// Event payload can never be clobbered by this normalization.
+func normalizeGoldenObservation(obs vrclog.Observation) vrclog.Observation {
+	obs.ID = "_"
+	obs.Time = time.Time{}
+	obs.Record.ID = "_"
+	obs.Record.SourceID = "_"
+	return obs
+}
+
 // TestFixtureGolden verifies the adapter's output against golden files
 // generated from real VRChat log fixtures using vrclog.ReadFile +
-// vrclog.EncodeObservationJSON. Run with -update to regenerate.
+// vrclog.EncodeObservationJSON. Machine-dependent fields (see
+// normalizeGoldenObservation) are normalized before comparison, so no
+// special TZ handling is needed. Run with -update to regenerate:
+//
+//	go test -count=1 ./iwasync3/ -update
 func TestFixtureGolden(t *testing.T) {
 	scenarios := []string{"player_error", "player_error_with_continuation"}
 
@@ -181,7 +250,7 @@ func TestFixtureGolden(t *testing.T) {
 
 			var encoded []json.RawMessage
 			for _, obs := range observations {
-				b, err := vrclog.EncodeObservationJSON(obs)
+				b, err := vrclog.EncodeObservationJSON(normalizeGoldenObservation(obs))
 				if err != nil {
 					t.Fatalf("EncodeObservationJSON() error = %v", err)
 				}

@@ -1,12 +1,12 @@
 [
   {
-    "id": "b1477c6fe4e62c9d87ceef84bdc48aeec90663a811f4a359b875ce13dac3dc1c",
-    "time": "2026-08-18T12:00:00+09:00",
+    "id": "_",
+    "time": "0001-01-01T00:00:00Z",
     "adapter_id": "community.iwasync3",
     "rule_id": "player_error",
     "record": {
-      "id": "01afc67dd01f0f3a2a3b5035e238ea886738aa2cb2a208f802b5f1905b20ffc9",
-      "source_id": "ea41ae4cacbe2d021fa6ef185e55f0cdb66c6bc4b0b456c0dbdb6d996d7044c7",
+      "id": "_",
+      "source_id": "_",
       "offset": 0,
       "line": 1
     },

@@ -3,15 +3,18 @@
 package iwasync3
 
 import (
+	"fmt"
+	"regexp"
 	"strings"
 
 	vrclog "github.com/vrclog/vrclog-go"
+
+	"github.com/vrclog/vrclog-adapters/internal/errtext"
 )
 
-const (
-	prefixWithSpace = "[iwaSync3] "
-	playerErrorText = "PlayerError"
-)
+const prefixWithSpace = "[iwaSync3] "
+
+var rePlayerError = regexp.MustCompile(`\bPlayerError\b`)
 
 type adapter struct{}
 
@@ -29,17 +32,23 @@ func (a adapter) Decode(record vrclog.Record) ([]vrclog.Emission, error) {
 	if !strings.HasPrefix(msg, prefixWithSpace) {
 		return nil, nil
 	}
-	if !strings.Contains(msg, playerErrorText) {
+	if !rePlayerError.MatchString(msg) {
 		return nil, nil
 	}
 
-	message := strings.TrimRight(msg[len(prefixWithSpace):], " \t")
+	raw := strings.TrimRight(msg[len(prefixWithSpace):], " \t")
+
+	parsed, err := errtext.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("iwasync3: player_error: %w", err)
+	}
 
 	return []vrclog.Emission{{
 		Rule: "player_error",
 		Event: vrclog.MediaErrorObserved{
 			Stage:   vrclog.MediaStagePlayback,
-			Message: message,
+			Code:    parsed.Code,
+			Message: parsed.Message,
 			Target: &vrclog.MediaTarget{
 				Component: "iwasync3",
 				Backend:   vrclog.MediaBackendUnknown,

@@ -1,12 +1,12 @@
 [
   {
-    "id": "9359796a532136bf5732367ceb272cbf65d1f603361290605b369dff45817bd4",
-    "time": "2026-08-18T12:00:00+09:00",
+    "id": "_",
+    "time": "0001-01-01T00:00:00Z",
     "adapter_id": "community.yamaplayer",
     "rule_id": "video_error",
     "record": {
-      "id": "0d180f41af07a59c670cbc9aaa01df404d3e34c10a400cf86d12ee1b77c36c99",
-      "source_id": "a8b97fc69714940abc203288ada07de0079263eaf496da936095e249e2e3d21d",
+      "id": "_",
+      "source_id": "_",
       "offset": 0,
       "line": 1
     },
@@ -14,7 +14,6 @@
     "payload": {
       "stage": "playback",
       "code": "500",
-      "message": "500.",
       "target": {
         "component": "yamaplayer",
         "key": "1",

@@ -25,25 +25,15 @@ VRChat client log                      community project log
 
 ## 使用例
 
+Adapterは個別にimportし、明示的に組み込む。暗黙的に有効化される aggregate API は提供しない。
+
 ```go
 import (
     vrclog "github.com/vrclog/vrclog-go"
-    adapters "github.com/vrclog/vrclog-adapters"
+
+    "github.com/vrclog/vrclog-adapters/iwasync3"
+    "github.com/vrclog/vrclog-adapters/yamaplayer"
 )
-
-allAdapters := []vrclog.Adapter{
-    vrclog.NewVRChatAdapter(),
-}
-allAdapters = append(allAdapters, adapters.All()...)
-
-engine, err := vrclog.NewEngine(allAdapters...)
-```
-
-個別Adapterだけを利用する場合:
-
-```go
-import "github.com/vrclog/vrclog-adapters/yamaplayer"
-import "github.com/vrclog/vrclog-adapters/iwasync3"
 
 engine, err := vrclog.NewEngine(
     vrclog.NewVRChatAdapter(),
@@ -54,13 +44,13 @@ engine, err := vrclog.NewEngine(
 
 ## Compatibility matrix
 
-| Project | Adapter | Verified observation | Fixture provenance | Status |
-|---|---|---|---|---|
-| YamaPlayer | `community.yamaplayer` | original YouTube source URL, player-specific video error | version unknown, captured 2026-08-18 | verified |
-| iwaSync3 | `community.iwasync3` | PlayerError; source URL via `vrchat.core` | version unknown, captured 2026-08-18 | verified |
-| VizVid | none (core-only) | not evaluated | no fixture | unverified |
+| Project | Adapter ID | Observed canonical event | Verification level |
+|---|---|---|---|
+| YamaPlayer | `community.yamaplayer` | `resource.url_observed` (source URL), `media.error_observed` (video error) | fixture_verified |
+| iwaSync3 | `community.iwasync3` | `media.error_observed` (PlayerError) | fixture_verified |
+| VizVid | none (core-only) | not evaluated | unverified |
 
-See [`compatibility/README.md`](compatibility/README.md) for details.
+`fixture_verified` は、実ログ由来fixtureが `vrclog.NewEngine` を通して少なくとも1 scenario 通過したことのみを示す。特定projectの全version、全機能を保証するものではない。詳細と既知の制限は [`compatibility/README.md`](compatibility/README.md) を参照。
 
 ## Non-goals
 

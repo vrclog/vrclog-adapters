@@ -10,12 +10,25 @@ import (
 	"unicode"
 
 	vrclog "github.com/vrclog/vrclog-go"
+
+	"github.com/vrclog/vrclog-adapters/internal/errtext"
 )
 
 const (
 	prefix        = "[YamaStream]"
 	resolveAnchor = "Resolve youtube url: "
+	resolvePrefix = prefix + " " + resolveAnchor
 	errorAnchor   = "Video error:"
+
+	// maxTargetKeyBytes mirrors vrclog-go's MediaTarget.Key length limit.
+	// Checked here so a malformed key produces an explicit decode error
+	// instead of an event the Engine would silently drop as invalid.
+	maxTargetKeyBytes = 256
+
+	// maxURLBytes mirrors vrclog-go's RemoteResource.URL length limit.
+	// Checked here so an oversized URL is treated as a non-match rather
+	// than an event the Engine would silently drop as invalid.
+	maxURLBytes = 16 * 1024
 )
 
 var reVideoError = regexp.MustCompile(`^\[YamaStream\] \[(\S+)\] Video error: (.+)$`)
@@ -37,7 +50,7 @@ func (a adapter) Decode(record vrclog.Record) ([]vrclog.Emission, error) {
 		return nil, nil
 	}
 
-	if strings.Contains(msg, resolveAnchor) {
+	if strings.HasPrefix(msg, resolvePrefix) {
 		return decodeYoutubeResolveURL(msg)
 	}
 
@@ -49,8 +62,7 @@ func (a adapter) Decode(record vrclog.Record) ([]vrclog.Emission, error) {
 }
 
 func decodeYoutubeResolveURL(msg string) ([]vrclog.Emission, error) {
-	idx := strings.Index(msg, resolveAnchor)
-	rest := strings.TrimRight(msg[idx+len(resolveAnchor):], " \t")
+	rest := strings.TrimRight(msg[len(resolvePrefix):], " \t")
 
 	if rest == "" {
 		return nil, fmt.Errorf("yamaplayer: youtube_resolve_url: missing URL after anchor")
@@ -70,6 +82,7 @@ func decodeYoutubeResolveURL(msg string) ([]vrclog.Emission, error) {
 			},
 			Target: &vrclog.MediaTarget{
 				Component: "yamaplayer",
+				Backend:   vrclog.MediaBackendUnknown,
 			},
 		},
 	}}, nil
@@ -82,15 +95,23 @@ func decodeVideoError(msg string) ([]vrclog.Emission, error) {
 	}
 
 	key := m[1]
-	message := m[2]
-	code := strings.TrimRight(message, ".")
+	if len(key) > maxTargetKeyBytes || errtext.ContainsUnsafeControlOrBidi(key) {
+		return nil, fmt.Errorf("yamaplayer: video_error: invalid target key")
+	}
+
+	raw := m[2]
+
+	parsed, err := errtext.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("yamaplayer: video_error: %w", err)
+	}
 
 	return []vrclog.Emission{{
 		Rule: "video_error",
 		Event: vrclog.MediaErrorObserved{
 			Stage:   vrclog.MediaStagePlayback,
-			Code:    code,
-			Message: message,
+			Code:    parsed.Code,
+			Message: parsed.Message,
 			Target: &vrclog.MediaTarget{
 				Component: "yamaplayer",
 				Key:       key,
@@ -101,9 +122,12 @@ func decodeVideoError(msg string) ([]vrclog.Emission, error) {
 }
 
 func isHTTPURL(rawURL string) bool {
+	if len(rawURL) > maxURLBytes {
+		return false
+	}
 	if strings.ContainsFunc(rawURL, func(r rune) bool {
 		return unicode.IsControl(r) || unicode.IsSpace(r)
-	}) {
+	}) || errtext.ContainsUnsafeControlOrBidi(rawURL) {
 		return false
 	}
 	u, err := url.Parse(rawURL)
@@ -116,5 +140,22 @@ func isHTTPURL(rawURL string) bool {
 	if u.User != nil {
 		return false
 	}
-	return u.Host != ""
+	if u.Host == "" {
+		return false
+	}
+	// The checks above only inspect the raw (percent-encoded) string, so a
+	// control character can still slip through if it was percent-encoded
+	// (e.g. %0d%0a). Re-check the decoded path, query, and fragment, as
+	// vrclog-go's own RemoteResource validation does.
+	if strings.ContainsFunc(u.Path, unicode.IsControl) {
+		return false
+	}
+	decodedQuery, err := url.QueryUnescape(u.RawQuery)
+	if err != nil || strings.ContainsFunc(decodedQuery, unicode.IsControl) {
+		return false
+	}
+	if strings.ContainsFunc(u.Fragment, unicode.IsControl) {
+		return false
+	}
+	return true
 }
