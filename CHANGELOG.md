@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Updated the `vrclog-go` dependency to `v0.0.0-20260824041056-1efbee85a71d`, which adds an eighth canonical Event type, `AdapterEvent` (an extension envelope for structured data that cannot map to the other seven canonical Events). No adapter code changes were required; `yamaplayer` and `iwasync3` continue to emit only `ResourceURLObserved` and `MediaErrorObserved`.
+
 ### Breaking
 
 - Removed the root `All()` aggregate API. Companion (and any consumer) must explicitly import and construct each adapter: `yamaplayer.New()`, `iwasync3.New()`. This prevents new community adapters from being implicitly activated by a dependency bump.
